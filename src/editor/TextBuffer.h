@@ -3,7 +3,8 @@
 #include <cstddef>
 #include <string>
 #include <string_view>
-
+#include <vector>
+#include <algorithm>
 class TextBuffer
 {
     [[nodiscard]]
@@ -29,4 +30,16 @@ public:
 
     [[nodiscard]]
     std::string substr(std::size_t l_position, std::size_t l_length) const;
+
+    [[nodiscard]]
+    std::vector<std::string_view> lines() const;
+
+    [[nodiscard]]
+    std::size_t lineCount() const noexcept;
+
+    [[nodiscard]]
+    std::size_t lineStart(std::size_t l_position) const noexcept;
+
+    [[nodiscard]]
+    std::size_t lineEnd(std::size_t l_position) const noexcept;    
 };

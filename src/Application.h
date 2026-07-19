@@ -1,11 +1,19 @@
 #pragma once
 #include "editor/Editor.h"
 #include <string>
+#include <vector>
 
 struct SDL_Window;
 struct SDL_Renderer;
 struct SDL_Texture;
 struct TTF_Font;
+
+struct RenderedLine
+{
+    SDL_Texture* texture {nullptr};
+    float width {0.0f};
+    float height {0.0f};
+};
 
 class Application
 {
@@ -16,11 +24,14 @@ class Application
     void handleTextInput(const char* l_input);
     void handleKeyDown(int key);
 
-    void rebuildTextTexture();
-    void destroyTextTexture();
+    void rebuildLineTextures();
+    void destroyLineTextures();
 
     [[nodiscard]]
     float calculateCursorX() const;
+
+    [[nodiscard]]
+    float calculateCursorY() const;
 
     bool m_running {true};
 
@@ -28,9 +39,13 @@ class Application
     SDL_Renderer* m_renderer {nullptr};
 
     TTF_Font* m_font {nullptr};
-    SDL_Texture* m_textTexture {nullptr};
+    std::vector<RenderedLine> m_renderedLines;
 
-    Editor m_editor{"Escribe aqui..."};
+    Editor m_editor{
+        "Rafedit\n"
+        "\n"
+        "Editor escrito de forma incremental"
+    };
     
     float m_textWidth {0.0f};
     float m_textHeight {0.0f};

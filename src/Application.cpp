@@ -12,6 +12,7 @@ namespace
     const int WindowHeight = 720;
 
     constexpr float FontSize = 24.0f;
+    constexpr float LineSpacing = 6.0f;
 
     constexpr float EditorLeft = 32.0f;
     constexpr float EditorTop = 32.0f;
@@ -79,7 +80,7 @@ Application::~Application()
         SDL_StopTextInput(m_window);
     }
     
-    destroyTextTexture();
+    destroyLineTextures();
 
     if(m_font != nullptr)
     {
@@ -144,7 +145,7 @@ void Application::update()
     {
         return;
     }
-    rebuildTextTexture();
+    rebuildLineTextures();
     m_editor.clearDirty();
 }
 
@@ -153,24 +154,28 @@ void Application::render()
     SDL_SetRenderDrawColor(m_renderer, BackgroundColor.r, BackgroundColor.g, BackgroundColor.b, BackgroundColor.a);
     SDL_RenderClear(m_renderer);
 
-    if(m_textTexture != nullptr)
+    float currentY = EditorTop;
+
+    for(const RenderedLine& line : m_renderedLines)
     {
-        const SDL_FRect destination { EditorLeft, EditorTop, m_textWidth, m_textHeight};
-        SDL_RenderTexture(m_renderer, m_textTexture, nullptr, &destination);
+        if(line.texture != nullptr)
+        {
+            const SDL_FRect destination { EditorLeft, currentY, line.width, line.height };
+            SDL_RenderTexture(m_renderer, line.texture, nullptr, &destination);
+        }
+        currentY += FontSize + LineSpacing;
     }
 
-    const float cursorX = EditorLeft + calculateCursorX();
-    const SDL_FRect cursorRect { cursorX, EditorTop, CursorWidth, m_textHeight > 0.0f ? m_textHeight : FontSize};
+    const SDL_FRect cursorRect { EditorLeft + calculateCursorX(), EditorTop + calculateCursorY(), CursorWidth, FontSize };
     SDL_SetRenderDrawColor(m_renderer, CursorColor.r, CursorColor.g, CursorColor.b, CursorColor.a);
     SDL_RenderFillRect(m_renderer, &cursorRect);
 
     SDL_RenderPresent(m_renderer);
-
 }
 
 void Application::handleTextInput(const char *l_input)
 {
-    if(l_input == nullptr || l_input[0] == '\0')
+    if(l_input == nullptr)
     {
         return;
     }
@@ -185,6 +190,10 @@ void Application::handleKeyDown(int key)
         case SDLK_ESCAPE:
             m_running = false;
             break;
+        case SDLK_RETURN:
+        case SDLK_KP_ENTER:
+            m_editor.insertNewLine();
+            break;
         case SDLK_BACKSPACE:
             m_editor.erasePreviousCharacter();
             break;
@@ -197,64 +206,76 @@ void Application::handleKeyDown(int key)
         case SDLK_RIGHT:
             m_editor.moveCursorRight();
             break;
+        case SDLK_UP:
+            m_editor.moveCursorUp();
+            break;
+        case SDLK_DOWN:
+            m_editor.moveCursorDown();
+            break;
         case SDLK_HOME:
-            m_editor.moveCursorToStart();
+            m_editor.moveCursorToLineStart();
             break;
         case SDLK_END:
-            m_editor.moveCursorToEnd();
+            m_editor.moveCursorToLineEnd();
             break;
         default:
             break;
     }
 }
 
-void Application::rebuildTextTexture()
+void Application::rebuildLineTextures()
 {
-    destroyTextTexture();
+    destroyLineTextures();
+    const std::vector<std::string_view> lines = m_editor.lines();
 
-    if(m_editor.empty())
+    m_renderedLines.reserve(lines.size());
+
+    for(const std::string_view line : lines)
     {
-        m_textWidth = 0.0f;
-        m_textHeight = FontSize;
-        return;
-    }
+        RenderedLine renderedLine{};
 
-    const std::string& text = m_editor.text();
+        if(line.empty())
+        {
+            renderedLine.height = FontSize;
+            m_renderedLines.push_back(renderedLine);
+            continue;
+        }
+        SDL_Surface* textSurface = TTF_RenderText_Blended(m_font, line.data(), line.size(), TextColor);
+        if(textSurface == nullptr)
+        {
+            throw std::runtime_error(std::string{"TTF_RenderText_Blended Error:"} + SDL_GetError());
+        }
 
-    SDL_Surface* textSurface = TTF_RenderText_Blended(m_font, text.c_str(), text.size(), TextColor);
+        renderedLine.width = static_cast<float>(textSurface->w);
+        renderedLine.height = static_cast<float>(textSurface->h);
+        renderedLine.texture = SDL_CreateTextureFromSurface(m_renderer, textSurface);
 
-    if(textSurface == nullptr)
-    {
-        throw std::runtime_error(std::string{"TTF_RenderText_Blended Error:"} + SDL_GetError());
-    }
+        SDL_DestroySurface(textSurface);
 
-    m_textWidth = static_cast<float>(textSurface->w);
-    m_textHeight = static_cast<float>(textSurface->h);
-
-    m_textTexture = SDL_CreateTextureFromSurface(m_renderer, textSurface);
-
-    SDL_DestroySurface(textSurface);
-
-    if(m_textTexture == nullptr)
-    {
-        throw std::runtime_error(std::string{"SDL_CreateTextureFromSurface Error:"} + SDL_GetError());
+        if(renderedLine.texture == nullptr)
+        {
+            throw std::runtime_error(std::string{"SDL_CreateTextureFromSurface Error:"} + SDL_GetError());
+        }
+        m_renderedLines.push_back(renderedLine);
     }
 }
 
-void Application::destroyTextTexture()
+void Application::destroyLineTextures()
 {
-    if(m_textTexture != nullptr)
+    for(RenderedLine& line : m_renderedLines)
     {
-        SDL_DestroyTexture(m_textTexture);
-        m_textTexture = nullptr;
+        if(line.texture != nullptr)
+        {
+            SDL_DestroyTexture(line.texture);
+            line.texture = nullptr;
+        }
     }
-    m_textWidth = 0.0f;
-    m_textHeight = 0.0f;
+    m_renderedLines.clear();
 }
 
 float Application::calculateCursorX() const
 {
-    const std::string textBeforeCursor = m_editor.textBeforeCursor();
+    const std::string textBeforeCursor = m_editor.textBeforeCursorOnCurrentLine();
 
     if(textBeforeCursor.empty())
     {
@@ -272,3 +293,8 @@ float Application::calculateCursorX() const
     return static_cast<float>(width);
 }
 
+float Application::calculateCursorY() const
+{
+    const TextPosition cursorPosition = m_editor.cursorTextPosition();
+    return static_cast<float>(cursorPosition.line) * (FontSize + LineSpacing);
+}

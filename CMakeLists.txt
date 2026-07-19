@@ -62,6 +62,7 @@ add_executable(${PROJECT_NAME}
     src/editor/Cursor.cpp
     src/editor/TextBuffer.h
     src/editor/TextBuffer.cpp
+    src/editor/TextPosition.h
 )
 
 target_include_directories(${PROJECT_NAME}
