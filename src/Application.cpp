@@ -23,11 +23,6 @@ namespace
     constexpr SDL_Color TextColor { 220, 220, 225, 255 };
     constexpr SDL_Color BackgroundColor { 24, 24, 27, 255 };
     constexpr SDL_Color CursorColor { 235, 235, 240, 255 };
-
-    bool isUtf8ContinuationByte(const unsigned char byte)
-    {
-        return (byte & 0b1100'0000U) == 0b1000'0000U;
-    }
 }
 
 Application::Application()
@@ -75,11 +70,6 @@ Application::Application()
     {
         throw std::runtime_error(std::string{"SDL_StartTextInput Error:"} + SDL_GetError());
     }
-
-    m_text = "Escribe aqui...";
-    m_cursorPosition = m_text.size();
-
-    m_textDirty = true;
 }
 
 Application::~Application()
@@ -129,7 +119,7 @@ int Application::run()
 
 void Application::processEvents()
 {
-    SDL_Event event;
+    SDL_Event event{};
     while(SDL_PollEvent(&event))
     {
         switch(event.type)
@@ -150,11 +140,12 @@ void Application::processEvents()
 
 void Application::update()
 {
-    if(m_textDirty)
+    if(!m_editor.isDirty())
     {
-        rebuildTextTexture();
-        m_textDirty = false;
+        return;
     }
+    rebuildTextTexture();
+    m_editor.clearDirty();
 }
 
 void Application::render()
@@ -184,7 +175,7 @@ void Application::handleTextInput(const char *l_input)
         return;
     }
 
-    insertText(l_input);
+    m_editor.insertText(l_input);
 }
 
 void Application::handleKeyDown(int key)
@@ -195,148 +186,42 @@ void Application::handleKeyDown(int key)
             m_running = false;
             break;
         case SDLK_BACKSPACE:
-            erasePreviousCharacter();
+            m_editor.erasePreviousCharacter();
             break;
         case SDLK_DELETE:
-            eraseNextCharacter();
+            m_editor.eraseNextCharacter();
             break;
         case SDLK_LEFT:
-            moveCursorLeft();
+            m_editor.moveCursorLeft();
             break;
         case SDLK_RIGHT:
-            moveCursorRight();
+            m_editor.moveCursorRight();
             break;
         case SDLK_HOME:
-            moveCursorToStart();
+            m_editor.moveCursorToStart();
             break;
         case SDLK_END:
-            moveCursorToEnd();
+            m_editor.moveCursorToEnd();
             break;
         default:
             break;
     }
 }
 
-void Application::insertText(const std::string &text)
-{
-    m_text.insert(m_cursorPosition, text);
-    m_cursorPosition += text.size();
-    m_textDirty = true;
-}
-
-void Application::erasePreviousCharacter()
-{
-    if(m_cursorPosition == 0)
-    {
-        return;
-    }
-
-    const std::size_t previousPosition = previousUtf8Position(m_cursorPosition);
-    m_text.erase(previousPosition, m_cursorPosition - previousPosition);
-    m_cursorPosition = previousPosition;
-    m_textDirty = true;
-}
-
-void Application::eraseNextCharacter()
-{
-    if(m_cursorPosition >= m_text.size())
-    {
-        return;
-    }
-
-    const std::size_t nextPosition = nextUtf8Position(m_cursorPosition);
-    m_text.erase(m_cursorPosition, nextPosition - m_cursorPosition);
-    m_textDirty = true;
-}
-
-void Application::moveCursorLeft()
-{
-    m_cursorPosition = previousUtf8Position(m_cursorPosition);
-
-}
-
-void Application::moveCursorRight()
-{
-    m_cursorPosition = nextUtf8Position(m_cursorPosition);
-}
-
-void Application::moveCursorToStart()
-{
-    m_cursorPosition = 0;
-}
-
-void Application::moveCursorToEnd()
-{
-    m_cursorPosition = m_text.size();
-}
-
-std::size_t Application::previousUtf8Position(std::size_t position) const
-{
-    if(position == 0 || m_text.empty())
-    {
-        return 0;
-    }
-
-    position = std::min(position, m_text.size());
-    --position;
-    while(position > 0 && isUtf8ContinuationByte(static_cast<unsigned char>(m_text[position])))
-    {
-        --position;
-    }
-    return position;
-}
-
-std::size_t Application::nextUtf8Position(std::size_t position) const
-{
-    if(position >= m_text.size())
-    {
-        return m_text.size();
-    }
-
-    ++position;
-    while(position < m_text.size() && isUtf8ContinuationByte(static_cast<unsigned char>(m_text[position])))
-    {
-        ++position;
-    }
-    return position;
-}
-
-// void Application::createTextTexture(const std::string &text)
-// {
-//     destroyTextTexture();
-
-//     constexpr SDL_Color textColor { 20, 220, 225, 255 };
-//     SDL_Surface* textSurface = TTF_RenderText_Blended(m_font, text.c_str(), text.size(), textColor);
-//     if(textSurface == nullptr)
-//     {
-//         throw std::runtime_error(std::string{"TTF_RenderText_Blended Error:"} + SDL_GetError());
-//     }
-
-//     m_textWidth = static_cast<float>(textSurface->w);
-//     m_textHeight = static_cast<float>(textSurface->h);
-
-//     m_textTexture = SDL_CreateTextureFromSurface(m_renderer, textSurface);
-
-//     SDL_DestroySurface(textSurface);
-
-//     if(m_textTexture == nullptr)
-//     {
-//         throw std::runtime_error(std::string{"SDL_CreateTextureFromSurface Error:"} + SDL_GetError());
-//     }
-// }
-
 void Application::rebuildTextTexture()
 {
     destroyTextTexture();
 
-    if(m_text.empty())
+    if(m_editor.empty())
     {
         m_textWidth = 0.0f;
         m_textHeight = FontSize;
         return;
     }
 
-    SDL_Surface* textSurface = TTF_RenderText_Blended(m_font, m_text.c_str(), m_text.size(), TextColor);
+    const std::string& text = m_editor.text();
+
+    SDL_Surface* textSurface = TTF_RenderText_Blended(m_font, text.c_str(), text.size(), TextColor);
 
     if(textSurface == nullptr)
     {
@@ -369,11 +254,12 @@ void Application::destroyTextTexture()
 
 float Application::calculateCursorX() const
 {
-    if(m_cursorPosition == 0 || m_text.empty()){
+    const std::string textBeforeCursor = m_editor.textBeforeCursor();
+
+    if(textBeforeCursor.empty())
+    {
         return 0.0f;
     }
-
-    const std::string textBeforeCursor = m_text.substr(0, m_cursorPosition);
 
     int width = 0;
     int height = 0;
