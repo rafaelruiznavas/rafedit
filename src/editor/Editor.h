@@ -57,6 +57,9 @@ public:
     [[nodiscard]]
     bool isDirty() const noexcept;
 
+    [[nodiscard]]
+    std::size_t lineCount() const noexcept;
+
     void clearDirty() noexcept;
 
     void insertText(std::string_view l_text);

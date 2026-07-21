@@ -135,6 +135,11 @@ bool Editor::isDirty() const noexcept
     return m_dirty;
 }
 
+std::size_t Editor::lineCount() const noexcept
+{
+    return m_textBuffer.lineCount();
+}
+
 void Editor::clearDirty() noexcept
 {
     m_dirty = false;
