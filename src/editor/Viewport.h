@@ -13,7 +13,7 @@ class Viewport
 public:
     explicit Viewport(float l_lineHeight);
 
-    void setHeight(float l_height) noexcept;
+    void setHeight(float l_height, std::size_t l_lineCount) noexcept;
 
     void scrollLines(float amount, std::size_t lineCount) noexcept;
 

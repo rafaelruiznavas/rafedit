@@ -9,9 +9,10 @@ Viewport::Viewport(const float l_lineHeight)
     std::max(l_lineHeight, 1.0f);
 }
 
-void Viewport::setHeight(const float l_height) noexcept
+void Viewport::setHeight(const float l_height, const std::size_t l_lineCount) noexcept
 {
     m_height = std::max(l_height, m_lineHeight);
+    clamp(l_lineCount);
 }
 
 void Viewport::scrollLines(const float l_amount, const std::size_t l_lineCount) noexcept

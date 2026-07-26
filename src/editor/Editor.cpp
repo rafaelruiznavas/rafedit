@@ -1,5 +1,46 @@
 #include "Editor.h"
 
+void Editor::prepareSelection(bool l_selecting) noexcept
+{
+    if (l_selecting)
+    {
+        if (!m_selection.active())
+        {
+            m_selection.begin(m_cursor.position());
+        }
+
+        return;
+    }
+
+    m_selection.clear();
+}
+
+void Editor::finishSelectionMovement(bool l_selecting) noexcept
+{
+    if (l_selecting)
+    {
+        m_selection.update(m_cursor.position());
+        if (!m_selection.active())
+        {
+            m_selection.clear();
+        }
+    }
+}
+
+void Editor::collapseSelectionLeft() noexcept
+{
+    m_cursor.setPosition(m_selection.start(), m_textBuffer.size());
+    m_selection.clear();
+    m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::collapseSelectionRight() noexcept
+{
+    m_cursor.setPosition(m_selection.end(), m_textBuffer.size());
+    m_selection.clear();
+    m_preferredColumn = cursorTextPosition().column;    
+}
+
 std::size_t Editor::previousUtf8Position(std::size_t l_position) const noexcept
 {
     if(l_position == 0 || m_textBuffer.empty())
@@ -105,24 +146,29 @@ std::size_t Editor::cursorPosition() const noexcept
 
 TextPosition Editor::cursorTextPosition() const noexcept
 {
+    return textPositionAt(m_cursor.position());
+}
+
+TextPosition Editor::textPositionAt(std::size_t l_bytePosition) const noexcept
+{
+    const std::size_t safePosition = std::min(l_bytePosition, m_textBuffer.size());
+
     const std::string& text = m_textBuffer.text();
-    const std::size_t cursorPosition = m_cursor.position();
 
     std::size_t line = 0;
 
-    for(std::size_t index=0; index < cursorPosition; ++index)
+    for (std::size_t index = 0;index < safePosition;++index)
     {
-        if(text[index] == '\n')
+        if (text[index] == '\n')
         {
             ++line;
         }
     }
 
-    const std::size_t currentLineStart = m_textBuffer.lineStart(cursorPosition);
+    const std::size_t currentLineStart = m_textBuffer.lineStart(safePosition);
+    const std::size_t column = utf8CharacterCount(currentLineStart, safePosition);
 
-    const std::size_t column = utf8CharacterCount(currentLineStart, cursorPosition);
-
-    return TextPosition{line, column};
+    return TextPosition{line,column};
 }
 
 bool Editor::empty() const noexcept
@@ -145,19 +191,78 @@ void Editor::clearDirty() noexcept
     m_dirty = false;
 }
 
-void Editor::insertText(std::string_view l_text)
+bool Editor::hasSelection() const noexcept
 {
-    if(l_text.empty())
+    return m_selection.active();
+}
+
+std::size_t Editor::selectionStart() const noexcept
+{
+    return m_selection.start();
+}
+
+std::size_t Editor::selectionEnd() const noexcept
+{
+    return m_selection.end();
+}
+
+std::string Editor::selectedText() const
+{
+    if (!hasSelection())
+    {
+        return {};
+    }
+
+    return m_textBuffer.substr(
+        m_selection.start(),
+        m_selection.length()
+    );    
+}
+
+void Editor::clearSelection() noexcept
+{
+    m_selection.clear();
+}
+
+void Editor::selectAll() noexcept
+{
+    m_selection.select(0,m_textBuffer.size());
+    m_cursor.moveToEnd(m_textBuffer.size());
+    m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::deleteSelection()
+{
+    if (!hasSelection())
     {
         return;
     }
 
-    const std::size_t insertionPosition = m_cursor.position();
-    m_textBuffer.insert(insertionPosition, l_text);
-    m_cursor.setPosition(insertionPosition + l_text.size(), m_textBuffer.size());
-
+    const std::size_t start = m_selection.start();
+    m_textBuffer.erase(start, m_selection.length());
+    m_cursor.setPosition(start,m_textBuffer.size());
+    m_selection.clear();
     m_preferredColumn = cursorTextPosition().column;
+    markDirty();
+}
 
+void Editor::insertText(std::string_view l_text)
+{
+    if (l_text.empty())
+    {
+        return;
+    }
+
+    if (hasSelection())
+    {
+        deleteSelection();
+    }
+
+    const std::size_t insertionPosition = m_cursor.position();
+    m_textBuffer.insert(insertionPosition,l_text);
+    m_cursor.setPosition(insertionPosition + l_text.size(), m_textBuffer.size());
+    m_selection.clear();
+    m_preferredColumn = cursorTextPosition().column;
     markDirty();
 }
 
@@ -168,83 +273,126 @@ void Editor::insertNewLine()
 
 void Editor::erasePreviousCharacter()
 {
-    if(m_cursor.position() == 0)
+    if (hasSelection())
+    {
+        deleteSelection();
+        return;
+    }
+
+    if (m_cursor.position() == 0)
     {
         return;
     }
 
     const std::size_t currentPosition = m_cursor.position();
     const std::size_t previousPosition = previousUtf8Position(currentPosition);
-    m_textBuffer.erase(previousPosition, currentPosition - previousPosition);
+    m_textBuffer.erase(previousPosition,currentPosition - previousPosition);
     m_cursor.setPosition(previousPosition, m_textBuffer.size());
     m_preferredColumn = cursorTextPosition().column;
-
     markDirty();
 }
 
 void Editor::eraseNextCharacter()
 {
+    if (hasSelection())
+    {
+        deleteSelection();
+        return;
+    }
+
     const std::size_t currentPosition = m_cursor.position();
 
-    if(currentPosition >= m_textBuffer.size())
+    if (currentPosition >= m_textBuffer.size())
     {
         return;
     }
 
     const std::size_t nextPosition = nextUtf8Position(currentPosition);
-    m_textBuffer.erase(currentPosition, nextPosition - currentPosition);
 
+    m_textBuffer.erase(currentPosition, nextPosition - currentPosition);
     m_preferredColumn = cursorTextPosition().column;
     markDirty();
 }
 
-void Editor::moveCursorLeft()
+void Editor::moveCursorLeft(const bool l_selecting)
 {
+    if (!l_selecting && hasSelection())
+    {
+        collapseSelectionLeft();
+        return;
+    }
+
+    prepareSelection(l_selecting);
+
     m_cursor.setPosition(previousUtf8Position(m_cursor.position()), m_textBuffer.size());
     m_preferredColumn = cursorTextPosition().column;
+    finishSelectionMovement(l_selecting);
 }
 
-void Editor::moveCursorRight()
+void Editor::moveCursorRight(const bool l_selecting)
 {
-    m_cursor.setPosition(nextUtf8Position(m_cursor.position()), m_textBuffer.size());
-    m_preferredColumn = cursorTextPosition().column;
-}
-
-void Editor::moveCursorUp()
-{
-    const std::size_t currentLineStart = m_textBuffer.lineStart(m_cursor.position());
-    if(currentLineStart == 0)
+    if (!l_selecting && hasSelection())
     {
+        collapseSelectionRight();
+        return;
+    }
+
+    prepareSelection(l_selecting);
+
+    m_cursor.setPosition(nextUtf8Position(m_cursor.position()),m_textBuffer.size());
+    m_preferredColumn = cursorTextPosition().column;
+    finishSelectionMovement(l_selecting);
+}
+
+void Editor::moveCursorUp(const bool l_selecting)
+{
+    prepareSelection(l_selecting);
+
+    const std::size_t currentLineStart = m_textBuffer.lineStart(m_cursor.position());
+
+    if (currentLineStart == 0)
+    {
+        finishSelectionMovement(l_selecting);
         return;
     }
 
     const std::size_t previousLineEnd = currentLineStart - 1;
     const std::size_t previousLineStart = m_textBuffer.lineStart(previousLineEnd);
-    m_cursor.setPosition(positionAtColumn(previousLineStart, previousLineEnd, m_preferredColumn), m_textBuffer.size());
+    m_cursor.setPosition(positionAtColumn(previousLineStart,previousLineEnd,m_preferredColumn),m_textBuffer.size());
+    finishSelectionMovement(l_selecting);
 }
 
-void Editor::moveCursorDown()
+void Editor::moveCursorDown(const bool l_selecting)
 {
+    prepareSelection(l_selecting);
+
     const std::size_t currentLineEnd = m_textBuffer.lineEnd(m_cursor.position());
-    if(currentLineEnd == m_textBuffer.size())
+
+    if (currentLineEnd >= m_textBuffer.size())
     {
+        finishSelectionMovement(l_selecting);
         return;
     }
 
     const std::size_t nextLineStart = currentLineEnd + 1;
     const std::size_t nextLineEnd = m_textBuffer.lineEnd(nextLineStart);
     m_cursor.setPosition(positionAtColumn(nextLineStart, nextLineEnd, m_preferredColumn), m_textBuffer.size());
+    finishSelectionMovement(l_selecting);
 }
 
-void Editor::moveCursorToLineStart()
+void Editor::moveCursorToLineStart(const bool l_selecting)
 {
-    m_cursor.setPosition(m_textBuffer.lineStart(m_cursor.position()), m_textBuffer.size());
+    prepareSelection(l_selecting);
+    m_cursor.setPosition(m_textBuffer.lineStart(m_cursor.position()),m_textBuffer.size());
     m_preferredColumn = 0;
+    finishSelectionMovement(l_selecting);
 }
 
-void Editor::moveCursorToLineEnd()
+void Editor::moveCursorToLineEnd(const bool l_selecting)
 {
-    m_cursor.setPosition(m_textBuffer.lineEnd(m_cursor.position()), m_textBuffer.size());
+    prepareSelection(l_selecting);
+    m_cursor.setPosition(m_textBuffer.lineEnd(m_cursor.position()),m_textBuffer.size());
     m_preferredColumn = cursorTextPosition().column;
+    finishSelectionMovement(l_selecting);
 }
 

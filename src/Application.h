@@ -1,6 +1,7 @@
 #pragma once
 #include "editor/Editor.h"
 #include "editor/Viewport.h"
+#include <string_view>
 #include <string>
 #include <vector>
 #include <cstddef>
@@ -30,7 +31,7 @@ class Application
     void render();
 
     void handleTextInput(const char* l_input);
-    void handleKeyDown(int l_key);
+    void handleKeyDown(int l_key, unsigned int l_modifiers);
     void handleMouseWheel(float l_amount);
     void handleWindowResize(int width, int height);
 
@@ -47,6 +48,14 @@ class Application
     float calculateCursorY() const;
 
     void ensureCursorVisible();
+
+    void renderSelection();
+
+    [[nodiscard]]
+    float measureTextWidth(std::string_view l_text);
+
+    [[nodiscard]]
+    std::string_view lineAt(const std::vector<std::string_view>& l_lines, std::size_t l_line) const;
 
     bool m_running {true};
     bool m_viewportDirty{true};

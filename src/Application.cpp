@@ -37,6 +37,24 @@ namespace
     constexpr SDL_Color GutterSeparatorColor { 55, 55, 62, 255};
 }
 
+std::size_t utf8BytePositionAtColumn(const std::string_view l_text, const std::size_t l_column)
+{
+    std::size_t bytePosition = 0;
+    std::size_t currentColumn = 0;
+
+    while (bytePosition < l_text.size() && currentColumn < l_column)
+    {
+        ++bytePosition;
+
+        while (bytePosition < l_text.size() && (static_cast<unsigned char>(l_text[bytePosition]) & 0b1100'0000U) == 0b1000'0000U)
+        {
+            ++bytePosition;
+        }
+        ++currentColumn;
+    }
+    return bytePosition;
+}
+
 Application::Application()
     : m_viewport{LineHeight}
 {
@@ -85,7 +103,7 @@ Application::Application()
     }
 
     SDL_GetWindowSize(m_window, &m_windowWidth, &m_windowHeight);
-    m_viewport.setHeight(static_cast<float>(m_windowHeight) - EditorTop - EditorBottom);
+    m_viewport.setHeight(static_cast<float>(m_windowHeight) - EditorTop - EditorBottom, m_editor.lineCount());
     ensureCursorVisible();
 }
 
@@ -148,7 +166,7 @@ void Application::processEvents()
                 handleTextInput(event.text.text);
                 break;
             case SDL_EVENT_KEY_DOWN:
-                handleKeyDown(event.key.key);
+                handleKeyDown(event.key.key, static_cast<unsigned int>(event.key.mod));
             case SDL_EVENT_MOUSE_WHEEL:
                 handleMouseWheel(event.wheel.y);
                 break;
@@ -190,6 +208,8 @@ void Application::render()
         static_cast<float>(m_windowWidth) - GutterLeft - GutterWidth, LineHeight};
     SDL_SetRenderDrawColor(m_renderer, CurrentLineColor.r, CurrentLineColor.g, CurrentLineColor.b, CurrentLineColor.a);
     SDL_RenderFillRect(m_renderer, &currentLineRectangle);
+
+    renderSelection();
 
     for(std::size_t index = 0; index < m_renderedLines.size(); ++index)
     {
@@ -237,14 +257,33 @@ void Application::handleTextInput(const char *l_input)
     ensureCursorVisible();
 }
 
-void Application::handleKeyDown(int l_key)
+void Application::handleKeyDown(int l_key, unsigned int l_modifiers)
 {
+    const bool shiftPressed = (l_modifiers & static_cast<unsigned int>(SDL_KMOD_SHIFT)) != 0U;
+    const bool controlPressed = (l_modifiers & static_cast<unsigned int>(SDL_KMOD_CTRL)) != 0U;
+
+    if (controlPressed && l_key == SDLK_A)
+    {
+        m_editor.selectAll();
+        ensureCursorVisible();
+        m_viewportDirty = true;
+        return;
+    }
     bool cursorChanged = true;
+
     switch(l_key)
     {
         case SDLK_ESCAPE:
-            m_running = false;
-            break;
+            if (m_editor.hasSelection())
+            {
+                m_editor.clearSelection();
+                m_viewportDirty = true;
+            }
+            else
+            {
+                m_running = false;
+            }
+            return;
         case SDLK_RETURN:
         case SDLK_KP_ENTER:
             m_editor.insertNewLine();
@@ -256,22 +295,22 @@ void Application::handleKeyDown(int l_key)
             m_editor.eraseNextCharacter();
             break;
         case SDLK_LEFT:
-            m_editor.moveCursorLeft();
+            m_editor.moveCursorLeft(shiftPressed);
             break;
         case SDLK_RIGHT:
-            m_editor.moveCursorRight();
+            m_editor.moveCursorRight(shiftPressed);
             break;
         case SDLK_UP:
-            m_editor.moveCursorUp();
+            m_editor.moveCursorUp(shiftPressed);
             break;
         case SDLK_DOWN:
-            m_editor.moveCursorDown();
+            m_editor.moveCursorDown(shiftPressed);
             break;
         case SDLK_HOME:
-            m_editor.moveCursorToLineStart();
+            m_editor.moveCursorToLineStart(shiftPressed);
             break;
         case SDLK_END:
-            m_editor.moveCursorToLineEnd();
+            m_editor.moveCursorToLineEnd(shiftPressed);
             break;
         default:
             cursorChanged = false;
@@ -281,6 +320,7 @@ void Application::handleKeyDown(int l_key)
     if(cursorChanged)
     {
         ensureCursorVisible();
+        m_viewportDirty = true;
     }
 }
 
@@ -294,7 +334,7 @@ void Application::handleWindowResize(const int width, const int height)
 {
     m_windowWidth = width;
     m_windowHeight = height;
-    m_viewport.setHeight(std::max(LineHeight, static_cast<float>(height) - EditorTop - EditorBottom));
+    m_viewport.setHeight(std::max(LineHeight, static_cast<float>(height) - EditorTop - EditorBottom), m_editor.lineCount());
 
     ensureCursorVisible();
     m_viewportDirty = true;
@@ -422,4 +462,82 @@ void Application::ensureCursorVisible()
     );
 
     m_viewportDirty = true;
+}
+
+void Application::renderSelection()
+{
+     if (!m_editor.hasSelection())
+    {
+        return;
+    }
+    const std::vector<std::string_view> lines = m_editor.lines();
+    const TextPosition selectionStart = m_editor.textPositionAt(m_editor.selectionStart());
+    const TextPosition selectionEnd = m_editor.textPositionAt(m_editor.selectionEnd());
+    const std::size_t firstVisibleLine = m_viewport.firstVisibleLine();
+    const std::size_t lastVisibleLine = m_viewport.lastVisibleLine(lines.size());
+    const std::size_t firstSelectionLine = std::max(selectionStart.line, firstVisibleLine);
+    const std::size_t lastSelectionLine = std::min(selectionEnd.line, lastVisibleLine > 0 ? lastVisibleLine - 1 : 0);
+
+    if (firstSelectionLine > lastSelectionLine)
+    {
+        return;
+    }
+
+    SDL_SetRenderDrawColor(m_renderer, 55, 78, 120, 180);
+
+    for(std::size_t lineIndex = firstSelectionLine; lineIndex <= lastSelectionLine; ++lineIndex)
+    {
+        const std::string_view line = lineAt(lines, lineIndex);
+        const std::size_t startColumn = lineIndex == selectionStart.line ? selectionStart.column : 0;
+        const std::size_t endColumn = lineIndex == selectionEnd.line ? selectionEnd.column : static_cast<std::size_t>(-1);
+        const std::size_t startByte = utf8BytePositionAtColumn(line, startColumn);
+        const std::size_t endByte = endColumn == static_cast<std::size_t>(-1) ? line.size() : utf8BytePositionAtColumn(line, endColumn);
+        const float startX = measureTextWidth(line.substr(0,startByte));
+        float endX = measureTextWidth(line.substr(0, endByte));
+
+        /*
+         * Cuando la selección atraviesa un salto de línea,
+         * mostramos una pequeña extensión después del último
+         * carácter para representar visualmente el '\n'.
+         */
+        if (lineIndex < selectionEnd.line && endX <= startX)
+        {
+            endX = startX + 10.0F;
+        }
+        else if (lineIndex < selectionEnd.line)
+        {
+            endX += 10.0F;
+        }
+
+        const SDL_FRect rectangle{EditorLeft + startX, EditorTop + m_viewport.lineY(lineIndex), std::max(endX - startX,2.0F),LineHeight};
+        SDL_RenderFillRect(m_renderer, &rectangle);
+    }
+}
+
+float Application::measureTextWidth(const std::string_view l_text)
+{
+    if (l_text.empty())
+    {
+        return 0.0F;
+    }
+
+    int width = 0;
+    int height = 0;
+
+    if (!TTF_GetStringSize(m_font,l_text.data(),l_text.size(),&width,&height))
+    {
+        return 0.0F;
+    }
+
+    return static_cast<float>(width);
+}
+
+std::string_view Application::lineAt(const std::vector<std::string_view> &l_lines, std::size_t l_line) const
+{
+    if (l_line >= l_lines.size())
+    {
+        return {};
+    }
+
+    return l_lines[l_line];
 }

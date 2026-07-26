@@ -2,12 +2,19 @@
 #include "TextBuffer.h"
 #include "TextPosition.h"
 #include "Cursor.h"
+#include "TextSelection.h"
 #include <string>
 #include <string_view>
 #include <vector>
 
 class Editor
 {
+    void prepareSelection(bool l_selecting) noexcept;
+    void finishSelectionMovement(bool l_selecting) noexcept;
+
+    void collapseSelectionLeft() noexcept;
+    void collapseSelectionRight() noexcept;
+
     [[nodiscard]]
     std::size_t previousUtf8Position(std::size_t l_position) const noexcept;
 
@@ -27,6 +34,7 @@ class Editor
 
     TextBuffer m_textBuffer;
     Cursor m_cursor;
+    TextSelection m_selection;
 
     std::size_t m_preferredColumn{0};
 
@@ -41,6 +49,9 @@ public:
 
     [[nodiscard]]
     const std::vector<std::string_view> lines() const;
+    
+    [[nodiscard]]
+    std::size_t lineCount() const noexcept;
 
     [[nodiscard]]
     const std::string textBeforeCursorOnCurrentLine() const;
@@ -52,15 +63,31 @@ public:
     TextPosition cursorTextPosition() const noexcept;
 
     [[nodiscard]]
+    TextPosition textPositionAt(std::size_t l_bytePosition) const noexcept;
+
+    [[nodiscard]]
     bool empty() const noexcept;
 
     [[nodiscard]]
     bool isDirty() const noexcept;
 
-    [[nodiscard]]
-    std::size_t lineCount() const noexcept;
-
     void clearDirty() noexcept;
+
+    [[nodiscard]]
+    bool hasSelection() const noexcept;
+
+    [[nodiscard]]
+    std::size_t selectionStart() const noexcept;
+
+    [[nodiscard]]
+    std::size_t selectionEnd() const noexcept;
+
+    [[nodiscard]]
+    std::string selectedText() const;
+
+    void clearSelection() noexcept;
+    void selectAll() noexcept;
+    void deleteSelection();
 
     void insertText(std::string_view l_text);
 
@@ -68,12 +95,12 @@ public:
     void erasePreviousCharacter();
     void eraseNextCharacter();
 
-    void moveCursorLeft();
-    void moveCursorRight();
-    void moveCursorUp();
-    void moveCursorDown();
+    void moveCursorLeft(bool selection = false);
+    void moveCursorRight(bool selection = false);
+    void moveCursorUp(bool selection = false);
+    void moveCursorDown(bool selection = false);
 
-    void moveCursorToLineStart();
-    void moveCursorToLineEnd();
+    void moveCursorToLineStart(bool selection = false);
+    void moveCursorToLineEnd(bool selection = false);
 
 };

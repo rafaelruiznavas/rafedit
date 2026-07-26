@@ -65,6 +65,7 @@ add_executable(${PROJECT_NAME}
     src/editor/TextPosition.h
     src/editor/Viewport.h
     src/editor/Viewport.cpp
+    src/editor/TextSelection.h
 )
 
 target_include_directories(${PROJECT_NAME}
