@@ -5,6 +5,7 @@
 #include <iostream>
 #include <stdexcept>
 #include <string>
+#include <memory>
 
 namespace
 {
@@ -37,6 +38,16 @@ namespace
     constexpr SDL_Color GutterSeparatorColor { 55, 55, 62, 255};
 }
 
+struct SDLMemoryDeleter
+{
+    void operator()(void* pointer)const noexcept
+    {
+        SDL_free(pointer);
+    }
+};
+
+using SDLStringPointer = std::unique_ptr<char, SDLMemoryDeleter>;
+
 std::size_t utf8BytePositionAtColumn(const std::string_view l_text, const std::size_t l_column)
 {
     std::size_t bytePosition = 0;
@@ -53,6 +64,29 @@ std::size_t utf8BytePositionAtColumn(const std::string_view l_text, const std::s
         ++currentColumn;
     }
     return bytePosition;
+}
+
+std::string normalizeLineEndings(std::string_view l_text)
+{
+    std::string result;
+    result.reserve(l_text.size());
+
+    for (std::size_t index = 0; index < l_text.size();++index)
+    {
+        if (l_text[index] == '\r')
+        {
+            if (index + 1 < l_text.size() && l_text[index + 1] == '\n')
+            {
+                ++index;
+            }
+
+            result.push_back('\n');
+            continue;
+        }
+
+        result.push_back(l_text[index]);
+    }
+    return result;
 }
 
 Application::Application()
@@ -262,12 +296,28 @@ void Application::handleKeyDown(int l_key, unsigned int l_modifiers)
     const bool shiftPressed = (l_modifiers & static_cast<unsigned int>(SDL_KMOD_SHIFT)) != 0U;
     const bool controlPressed = (l_modifiers & static_cast<unsigned int>(SDL_KMOD_CTRL)) != 0U;
 
-    if (controlPressed && l_key == SDLK_A)
+    if (controlPressed)
     {
-        m_editor.selectAll();
-        ensureCursorVisible();
-        m_viewportDirty = true;
-        return;
+        switch(l_key)
+        {
+            case SDLK_A:
+                m_editor.selectAll();
+                ensureCursorVisible();
+                m_viewportDirty = true;
+                return;
+            case SDLK_C:
+                copySelectionToClipboard();
+                return;
+            case SDLK_X:
+                cutSelectionToClipboard();
+                return;
+            case SDLK_V:
+                pasteFromClipboard();
+                return;
+            default:
+                break;
+        }
+        
     }
     bool cursorChanged = true;
 
@@ -338,6 +388,83 @@ void Application::handleWindowResize(const int width, const int height)
 
     ensureCursorVisible();
     m_viewportDirty = true;
+}
+
+void Application::copySelectionToClipboard()
+{
+    if (!m_editor.hasSelection())
+    {
+        return;
+    }
+
+    const std::string selectedText = m_editor.selectedText();
+
+    if (selectedText.empty())
+    {
+        return;
+    }
+
+    if (!SDL_SetClipboardText(selectedText.c_str()))
+    {
+        SDL_Log("No se pudo copiar al portapapeles: %s", SDL_GetError());
+    }
+}
+
+void Application::cutSelectionToClipboard()
+{
+    if (!m_editor.hasSelection())
+    {
+        return;
+    }
+
+    const std::string selectedText = m_editor.selectedText();
+
+    if (selectedText.empty())
+    {
+        return;
+    }
+
+    if (!SDL_SetClipboardText(selectedText.c_str()))
+    {
+        SDL_Log("No se pudo cortar al portapapeles: %s",SDL_GetError());
+        return;
+    }
+
+    m_editor.deleteSelection();
+
+    ensureCursorVisible();
+    m_viewportDirty = true;
+}
+
+void Application::pasteFromClipboard()
+{
+    if (!SDL_HasClipboardText())
+    {
+        return;
+    }
+
+    SDLStringPointer clipboardText{SDL_GetClipboardText()};
+
+    if (clipboardText == nullptr)
+    {
+        SDL_Log("No se pudo leer el portapapeles: %s",SDL_GetError());
+        return;
+    }
+
+    if(clipboardText.get()[0] == '\0')
+    {
+        return;
+    }
+
+    const std::string normalizedText = normalizeLineEndings(clipboardText.get());
+    if(normalizedText.empty())
+    {
+        return;
+    }
+    m_editor.insertText(normalizedText);
+
+    ensureCursorVisible();
+    m_viewportDirty = true;    
 }
 
 void Application::rebuildVisibleLineTextures()

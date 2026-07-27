@@ -35,6 +35,10 @@ class Application
     void handleMouseWheel(float l_amount);
     void handleWindowResize(int width, int height);
 
+    void copySelectionToClipboard();
+    void cutSelectionToClipboard();
+    void pasteFromClipboard();
+
     void rebuildVisibleLineTextures();
     void destroyLineTextures();
 
