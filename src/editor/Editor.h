@@ -103,4 +103,16 @@ public:
     void moveCursorToLineStart(bool selection = false);
     void moveCursorToLineEnd(bool selection = false);
 
+    void moveCursorTo(std::size_t bytePosition,bool selecting = false);
+    void beginSelectionAt(std::size_t bytePosition);
+    void updateSelectionTo(std::size_t bytePosition);
+
+    [[nodiscard]]
+    std::size_t bytePositionAt(std::size_t line, std::size_t column) const noexcept;
+
+    [[nodiscard]]
+    std::size_t lineStartPosition(std::size_t line) const noexcept;
+
+    [[nodiscard]]
+    std::size_t lineEndPosition(std::size_t line) const noexcept;
 };

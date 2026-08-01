@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <cmath>
+#include <cstdint>
 
 Viewport::Viewport(const float l_lineHeight)
     : m_lineHeight(l_lineHeight)
@@ -15,68 +16,101 @@ void Viewport::setHeight(const float l_height, const std::size_t l_lineCount) no
     clamp(l_lineCount);
 }
 
-void Viewport::scrollLines(const float l_amount, const std::size_t l_lineCount) noexcept
+void Viewport::scrollByLines(int l_lineDelta, std::size_t l_lineCount) noexcept
 {
-    m_scrollOffset += l_amount * m_lineHeight;
-    clamp(l_lineCount);
+    /*
+     * Convertimos temporalmente a entero con signo para
+     * permitir desplazamiento negativo sin desbordar size_t.
+     */
+    const std::int64_t current = static_cast<std::int64_t>(m_firstVisibleLine);
+    const std::int64_t requested = current + static_cast<std::int64_t>(l_lineDelta);
+    m_firstVisibleLine = requested <= 0 ? 0 : static_cast<std::size_t>(requested);
+    clamp(l_lineCount);    
 }
 
-void Viewport::ensureLineVisible(const std::size_t l_line, const std::size_t l_lineCount) noexcept
+void Viewport::ensureLineVisible(const std::size_t l_requestedLine,const std::size_t documentLineCount) noexcept
 {
-    if(l_lineCount == 0)
+    if (documentLineCount == 0)
     {
-        m_scrollOffset = 0.0f;
+        m_firstVisibleLine = 0;
         return;
     }
 
-    const float lineTop = static_cast<float>(l_line) * m_lineHeight;
-    const float lineBottom = lineTop + m_lineHeight;
+    const std::size_t line =
+        std::min(l_requestedLine,documentLineCount - 1);
 
-    if(lineTop < m_scrollOffset)
+    const std::size_t visibleLines = visibleLineCount();
+
+    const std::size_t lastExclusive = m_firstVisibleLine + visibleLines;
+
+    if (line < m_firstVisibleLine)
     {
-        m_scrollOffset = lineTop;
+        /*
+         * El cursor está por encima.
+         * La línea del cursor pasa a ser la primera.
+         */
+        m_firstVisibleLine = line;
     }
-    else if(lineBottom > m_scrollOffset + m_height)
+    else if (line >= lastExclusive)
     {
-        m_scrollOffset = lineBottom - m_height;
+        /*
+         * El cursor está por debajo.
+         * La línea del cursor pasa a ser la última visible.
+         */
+        m_firstVisibleLine = line - visibleLines + 1;
     }
 
-    clamp(l_lineCount);
+    clamp(documentLineCount);
 }
 
 std::size_t Viewport::firstVisibleLine() const noexcept
 {
-    return static_cast<std::size_t>(std::floor(m_scrollOffset / m_lineHeight));
+    return m_firstVisibleLine;
 }
 
 std::size_t Viewport::visibleLineCount() const noexcept
 {
-    return static_cast<std::size_t>(std::ceil(m_height / m_lineHeight));
-}
-
-std::size_t Viewport::lastVisibleLine(const std::size_t l_lineCount) const noexcept
-{
-    if(l_lineCount == 0)
+    if (m_lineHeight <= 0.0F)
     {
-        return 0;
+        return 1;
     }
 
-    return std::min(firstVisibleLine() + visibleLineCount(), l_lineCount);
+    return std::max<std::size_t>(1,static_cast<std::size_t>(std::floor(m_height / m_lineHeight)));
+}
+
+std::size_t Viewport::lastVisibleLineExclusive(const std::size_t l_lineCount) const noexcept
+{
+    return std::min(m_firstVisibleLine + visibleLineCount(), l_lineCount);
+}
+
+bool Viewport::isLineVisible(std::size_t l_line, std::size_t l_documentLineCount) const noexcept
+{
+    return l_line >= m_firstVisibleLine && l_line < lastVisibleLineExclusive(l_documentLineCount);
 }
 
 float Viewport::lineY(const std::size_t l_line) const noexcept
 {
-    return (static_cast<float>(l_line) * m_lineHeight) - m_scrollOffset;
-}
+    if (l_line < m_firstVisibleLine)
+    {
+        return -m_lineHeight;
+    }
 
-float Viewport::scrollOffset() const noexcept
-{
-    return m_scrollOffset;
+    return static_cast<float>(l_line - m_firstVisibleLine) * m_lineHeight;    
 }
 
 void Viewport::clamp(const std::size_t l_lineCount) noexcept
 {
-    const float documentHeight = static_cast<float>(l_lineCount) * m_lineHeight;
-    const float maximunOffset = std::max(0.0f, documentHeight - m_height);
-    m_scrollOffset = std::clamp(m_scrollOffset, 0.0f, maximunOffset);
+    m_firstVisibleLine = std::min(m_firstVisibleLine,maximumFirstLine(l_lineCount));
+}
+
+std::size_t Viewport::maximumFirstLine(std::size_t l_lineCount) const noexcept
+{
+    const std::size_t visibleCount = visibleLineCount();
+
+    if (l_lineCount <= visibleCount)
+    {
+        return 0;
+    }
+
+    return l_lineCount - visibleCount;
 }

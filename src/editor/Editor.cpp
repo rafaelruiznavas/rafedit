@@ -396,3 +396,98 @@ void Editor::moveCursorToLineEnd(const bool l_selecting)
     finishSelectionMovement(l_selecting);
 }
 
+std::size_t Editor::lineStartPosition(const std::size_t requestedLine) const noexcept
+{
+    const std::string& text = m_textBuffer.text();
+
+    if (requestedLine == 0)
+    {
+        return 0;
+    }
+    m_textBuffer.text();
+
+    if (requestedLine == 0)
+    {
+        return 0;
+    }
+
+    std::size_t currentLine = 0;
+    std::size_t position = 0;
+
+    while (position < text.size())
+    {
+        if (text[position] == '\n')
+        {
+            ++currentLine;
+
+            if (currentLine == requestedLine)
+            {
+                return position + 1;
+            }
+        }
+
+        ++position;
+    }
+    return text.size();
+}
+
+std::size_t Editor::lineEndPosition(const std::size_t line) const noexcept
+{
+    const std::size_t start = lineStartPosition(line);
+    return m_textBuffer.lineEnd(start);
+}
+
+std::size_t Editor::bytePositionAt(const std::size_t requestedLine, const std::size_t requestedColumn) const noexcept
+{
+    if (m_textBuffer.empty())
+    {
+        return 0;
+    }
+
+    const std::size_t maximumLine = m_textBuffer.lineCount() - 1;
+    const std::size_t line = std::min(requestedLine,maximumLine);
+    const std::size_t start = lineStartPosition(line);
+    const std::size_t end = lineEndPosition(line);
+
+    return positionAtColumn(start, end,requestedColumn);
+}
+
+void Editor::moveCursorTo(const std::size_t bytePosition, const bool selecting)
+{
+    const std::size_t safePosition = std::min(bytePosition, m_textBuffer.size());
+    if (selecting)
+    {
+        if (!m_selection.active())
+        {
+            m_selection.begin(m_cursor.position());
+        }
+    }
+    else
+    {
+        m_selection.clear();
+    }
+    m_cursor.setPosition(safePosition, m_textBuffer.size());
+    if (selecting)
+    {
+        m_selection.update(m_cursor.position());
+    }
+    m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::beginSelectionAt(const std::size_t bytePosition)
+{
+    const std::size_t safePosition = std::min(bytePosition,m_textBuffer.size());
+
+    m_cursor.setPosition(safePosition,m_textBuffer.size());
+    m_selection.begin(safePosition);
+    m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::updateSelectionTo(const std::size_t bytePosition)
+{
+    const std::size_t safePosition = std::min(bytePosition,m_textBuffer.size());
+    m_cursor.setPosition(safePosition, m_textBuffer.size());
+    m_selection.update(safePosition);
+
+    m_preferredColumn = cursorTextPosition().column;
+}
