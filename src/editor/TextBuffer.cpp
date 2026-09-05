@@ -38,7 +38,7 @@ std::vector<std::string_view> TextBuffer::lines() const
     std::vector<std::string_view> result;
     std::size_t lineStartPosition = 0;
 
-    while(lineStartPosition < m_text.size())
+    while(lineStartPosition <= m_text.size())
     {
         const std::size_t lineEndPosition = m_text.find('\n', lineStartPosition);
 
@@ -50,11 +50,6 @@ std::vector<std::string_view> TextBuffer::lines() const
 
         result.emplace_back(m_text.data() + lineStartPosition, lineEndPosition - lineStartPosition);
         lineStartPosition = lineEndPosition + 1;
-    }
-
-    if(result.empty())
-    {
-        result.emplace_back();
     }
 
     return result;
