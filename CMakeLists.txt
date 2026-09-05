@@ -66,6 +66,8 @@ add_executable(${PROJECT_NAME}
     src/editor/Viewport.h
     src/editor/Viewport.cpp
     src/editor/TextSelection.h
+    src/editor/LineLayout.h
+    src/editor/LineLayout.cpp
 )
 
 target_include_directories(${PROJECT_NAME}

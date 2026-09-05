@@ -5,15 +5,22 @@
 #include <cstdint>
 
 Viewport::Viewport(const float l_lineHeight)
-    : m_lineHeight(l_lineHeight)
+    : m_lineHeight(l_lineHeight),
+    m_height(l_lineHeight)
 {
-    std::max(l_lineHeight, 1.0f);
 }
 
 void Viewport::setHeight(const float l_height, const std::size_t l_lineCount) noexcept
 {
     m_height = std::max(l_height, m_lineHeight);
-    clamp(l_lineCount);
+    clampVertical(l_lineCount);
+}
+
+void Viewport::setWidth(const float width) noexcept
+{
+    m_width = std::max(width,1.0F);
+
+    m_horizontalOffset = std::max(m_horizontalOffset, 0.0F);
 }
 
 void Viewport::scrollByLines(int l_lineDelta, std::size_t l_lineCount) noexcept
@@ -25,7 +32,12 @@ void Viewport::scrollByLines(int l_lineDelta, std::size_t l_lineCount) noexcept
     const std::int64_t current = static_cast<std::int64_t>(m_firstVisibleLine);
     const std::int64_t requested = current + static_cast<std::int64_t>(l_lineDelta);
     m_firstVisibleLine = requested <= 0 ? 0 : static_cast<std::size_t>(requested);
-    clamp(l_lineCount);    
+    clampVertical(l_lineCount);    
+}
+
+void Viewport::scrollHorizontally(float pixelDelta) noexcept
+{
+    m_horizontalOffset = std::max(0.0f, m_horizontalOffset + pixelDelta);
 }
 
 void Viewport::ensureLineVisible(const std::size_t l_requestedLine,const std::size_t documentLineCount) noexcept
@@ -60,7 +72,42 @@ void Viewport::ensureLineVisible(const std::size_t l_requestedLine,const std::si
         m_firstVisibleLine = line - visibleLines + 1;
     }
 
-    clamp(documentLineCount);
+    clampVertical(documentLineCount);
+}
+
+void Viewport::ensureXVisible(const float x, const float caretWidth) noexcept
+{
+    constexpr float Margin = 16.0F;
+
+    /*
+     * x está expresado en coordenadas del documento.
+     *
+     * El intervalo actualmente visible es:
+     *
+     * [horizontalOffset_,
+     *  horizontalOffset_ + width_]
+     */
+
+    const float visibleLeft = m_horizontalOffset;
+    const float visibleRight = m_horizontalOffset + m_width;
+
+    /*
+     * Cursor fuera por la izquierda.
+     */
+    if (x < visibleLeft + Margin)
+    {
+        m_horizontalOffset = std::max(0.0F,x - Margin);
+        return;
+    }
+
+    /*
+     * Cursor fuera por la derecha.
+     */
+    if (x + caretWidth > visibleRight - Margin)
+    {
+        m_horizontalOffset = x + caretWidth + Margin - m_width;
+        m_horizontalOffset = std::max(0.0F,m_horizontalOffset);
+    }
 }
 
 std::size_t Viewport::firstVisibleLine() const noexcept
@@ -70,11 +117,6 @@ std::size_t Viewport::firstVisibleLine() const noexcept
 
 std::size_t Viewport::visibleLineCount() const noexcept
 {
-    if (m_lineHeight <= 0.0F)
-    {
-        return 1;
-    }
-
     return std::max<std::size_t>(1,static_cast<std::size_t>(std::floor(m_height / m_lineHeight)));
 }
 
@@ -98,7 +140,17 @@ float Viewport::lineY(const std::size_t l_line) const noexcept
     return static_cast<float>(l_line - m_firstVisibleLine) * m_lineHeight;    
 }
 
-void Viewport::clamp(const std::size_t l_lineCount) noexcept
+float Viewport::horizontalOffset() const noexcept
+{
+    return m_horizontalOffset;
+}
+
+float Viewport::width() const noexcept
+{
+    return m_width;
+}
+
+void Viewport::clampVertical(const std::size_t l_lineCount) noexcept
 {
     m_firstVisibleLine = std::min(m_firstVisibleLine,maximumFirstLine(l_lineCount));
 }

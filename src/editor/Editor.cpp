@@ -1,5 +1,21 @@
 #include "Editor.h"
 
+namespace
+{
+    bool isWordByte(const unsigned char byte) noexcept
+    {
+        /*
+         * Letras y números ASCII, guion bajo y cualquier
+         * byte no ASCII, que consideramos parte de una palabra
+         * UTF-8.
+         */
+        return
+            byte >= 0x80U ||
+            std::isalnum(byte) != 0 ||
+            byte == static_cast<unsigned char>('_');
+    }
+}
+
 void Editor::prepareSelection(bool l_selecting) noexcept
 {
     if (l_selecting)
@@ -398,36 +414,27 @@ void Editor::moveCursorToLineEnd(const bool l_selecting)
 
 std::size_t Editor::lineStartPosition(const std::size_t requestedLine) const noexcept
 {
+    if (requestedLine == 0)
+    {
+        return 0;
+    }
+
     const std::string& text = m_textBuffer.text();
-
-    if (requestedLine == 0)
-    {
-        return 0;
-    }
-    m_textBuffer.text();
-
-    if (requestedLine == 0)
-    {
-        return 0;
-    }
-
     std::size_t currentLine = 0;
-    std::size_t position = 0;
 
-    while (position < text.size())
+    for (std::size_t position = 0; position < text.size(); ++position)
     {
-        if (text[position] == '\n')
+        if (text[position] != '\n')
         {
-            ++currentLine;
-
-            if (currentLine == requestedLine)
-            {
-                return position + 1;
-            }
+            continue;
         }
-
-        ++position;
+        ++currentLine;
+        if (currentLine == requestedLine)
+        {
+            return position + 1;
+        }
     }
+
     return text.size();
 }
 
@@ -439,22 +446,28 @@ std::size_t Editor::lineEndPosition(const std::size_t line) const noexcept
 
 std::size_t Editor::bytePositionAt(const std::size_t requestedLine, const std::size_t requestedColumn) const noexcept
 {
-    if (m_textBuffer.empty())
+    if (m_textBuffer.lineCount() == 0)
     {
         return 0;
     }
 
-    const std::size_t maximumLine = m_textBuffer.lineCount() - 1;
-    const std::size_t line = std::min(requestedLine,maximumLine);
-    const std::size_t start = lineStartPosition(line);
-    const std::size_t end = lineEndPosition(line);
-
-    return positionAtColumn(start, end,requestedColumn);
+    const std::size_t line = std::min(requestedLine, m_textBuffer.lineCount() - 1);
+    const std::size_t lineStart =lineStartPosition(line);
+    const std::size_t lineEnd = m_textBuffer.lineEnd(lineStart);
+    return positionAtColumn(lineStart,lineEnd,requestedColumn);
 }
 
-void Editor::moveCursorTo(const std::size_t bytePosition, const bool selecting)
+std::string_view Editor::line(const std::size_t lineIndex) const noexcept
 {
-    const std::size_t safePosition = std::min(bytePosition, m_textBuffer.size());
+    const std::size_t start = lineStartPosition(lineIndex);
+    const std::size_t end = m_textBuffer.lineEnd(start);
+    return std::string_view{m_textBuffer.text().data() + start,end - start};
+}
+
+void Editor::moveCursorTo(const std::size_t bytePosition,const bool selecting)
+{
+    const std::size_t safePosition = std::min(bytePosition,m_textBuffer.size());
+
     if (selecting)
     {
         if (!m_selection.active())
@@ -466,19 +479,21 @@ void Editor::moveCursorTo(const std::size_t bytePosition, const bool selecting)
     {
         m_selection.clear();
     }
-    m_cursor.setPosition(safePosition, m_textBuffer.size());
+
+    m_cursor.setPosition(safePosition,m_textBuffer.size());
+
     if (selecting)
     {
-        m_selection.update(m_cursor.position());
+        m_selection.update(safePosition);
     }
+
     m_preferredColumn = cursorTextPosition().column;
 }
 
 void Editor::beginSelectionAt(const std::size_t bytePosition)
 {
     const std::size_t safePosition = std::min(bytePosition,m_textBuffer.size());
-
-    m_cursor.setPosition(safePosition,m_textBuffer.size());
+    m_cursor.setPosition(safePosition, m_textBuffer.size());
     m_selection.begin(safePosition);
     m_preferredColumn = cursorTextPosition().column;
 }
@@ -486,8 +501,134 @@ void Editor::beginSelectionAt(const std::size_t bytePosition)
 void Editor::updateSelectionTo(const std::size_t bytePosition)
 {
     const std::size_t safePosition = std::min(bytePosition,m_textBuffer.size());
+
+    if (safePosition == m_cursor.position())
+    {
+        return;
+    }
+
     m_cursor.setPosition(safePosition, m_textBuffer.size());
     m_selection.update(safePosition);
-
     m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::selectRange(const std::size_t anchor, const std::size_t cursorPosition)
+{
+    const std::size_t safeAnchor = std::min(anchor, m_textBuffer.size());
+    const std::size_t safeCursor = std::min(cursorPosition, m_textBuffer.size());
+    m_selection.select(safeAnchor,safeCursor);
+    m_cursor.setPosition(safeCursor, m_textBuffer.size());
+    m_preferredColumn = cursorTextPosition().column;
+}
+
+void Editor::indent()
+{
+    insertText("\t");
+}
+
+void Editor::unindent()
+{
+    const std::size_t position = m_cursor.position();
+    const std::size_t lineStart = m_textBuffer.lineStart(position);
+
+    if (lineStart >= m_textBuffer.size())
+    {
+        return;
+    }
+
+    const std::string& text = m_textBuffer.text();
+
+    if (text[lineStart] == '\t')
+    {
+        m_textBuffer.erase(lineStart, 1);
+        if (position > lineStart)
+        {
+            m_cursor.setPosition(position - 1, m_textBuffer.size());
+        }
+
+        markDirty();
+    }
+}
+
+TextRange Editor::wordRangeAt(const std::size_t requestedPosition) const noexcept
+{
+    const std::string& text = m_textBuffer.text();
+
+    if (text.empty())
+    {
+        return {};
+    }
+
+    std::size_t position = std::min(requestedPosition,text.size());
+
+    /*
+     * Si el cursor está al final del documento, examinamos
+     * el carácter anterior.
+     */
+    if (position == text.size())
+    {
+        position = previousUtf8Position(position);
+    }
+
+    if (position >= text.size() || text[position] == '\n')
+    {
+        return {requestedPosition, requestedPosition};
+    }
+
+    const bool wordCharacter = isWordByte(static_cast<unsigned char>(text[position]));
+    std::size_t start = position;
+
+    while (start > 0)
+    {
+        const std::size_t previous = previousUtf8Position(start);
+
+        if (text[previous] == '\n')
+        {
+            break;
+        }
+
+        const bool previousIsWord = isWordByte(static_cast<unsigned char>(text[previous]));
+
+        if (previousIsWord != wordCharacter)
+        {
+            break;
+        }
+
+        start = previous;
+    }
+
+    std::size_t end = nextUtf8Position(position);
+
+    while (end < text.size())
+    {
+        if (text[end] == '\n')
+        {
+            break;
+        }
+
+        const bool nextIsWord = isWordByte(static_cast<unsigned char>(text[end]));
+
+        if (nextIsWord != wordCharacter)
+        {
+            break;
+        }
+
+        end = nextUtf8Position(end);
+    }
+
+    return {start, end};
+}
+
+TextRange Editor::lineRangeAt(const std::size_t requestedPosition, const bool includeLineBreak) const noexcept
+{
+    const std::size_t position = std::min(requestedPosition, m_textBuffer.size());
+    const std::size_t start =m_textBuffer.lineStart(position);
+    std::size_t end = m_textBuffer.lineEnd(position);
+
+    if (includeLineBreak && end < m_textBuffer.size() && m_textBuffer.text()[end] == '\n')
+    {
+        ++end;
+    }
+
+    return { start, end };
 }

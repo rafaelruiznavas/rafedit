@@ -3,6 +3,7 @@
 #include "TextPosition.h"
 #include "Cursor.h"
 #include "TextSelection.h"
+#include "TextRange.h"
 #include <string>
 #include <string_view>
 #include <vector>
@@ -106,9 +107,22 @@ public:
     void moveCursorTo(std::size_t bytePosition,bool selecting = false);
     void beginSelectionAt(std::size_t bytePosition);
     void updateSelectionTo(std::size_t bytePosition);
+    void selectRange(std::size_t anchor, std::size_t cursor);
+
+    void indent();
+    void unindent();
+
+    [[nodiscard]]
+    TextRange wordRangeAt(std::size_t bytePosition) const noexcept;
+
+    [[nodiscard]]
+    TextRange lineRangeAt(std::size_t bytePosition,bool includeLineBreak = true) const noexcept;
 
     [[nodiscard]]
     std::size_t bytePositionAt(std::size_t line, std::size_t column) const noexcept;
+
+    [[nodiscard]]
+    std::string_view line(std::size_t lineIndex) const noexcept;
 
     [[nodiscard]]
     std::size_t lineStartPosition(std::size_t line) const noexcept;

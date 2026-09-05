@@ -4,24 +4,29 @@
 
 class Viewport
 {
-    void clamp(std::size_t l_lineCount) noexcept;
+    void clampVertical(std::size_t l_lineCount) noexcept;
 
     [[nodiscard]]
     std::size_t maximumFirstLine(std::size_t l_lineCount) const noexcept;
 
     float m_lineHeight{1.0f};
     float m_height{1.0f};
+    float m_width{1.0f};
     std::size_t m_firstVisibleLine{0};
+    float m_horizontalOffset{0.0f};
 
 
 public:
     explicit Viewport(float l_lineHeight);
 
     void setHeight(float l_height, std::size_t l_lineCount) noexcept;
+    void setWidth(float width) noexcept;
 
     void scrollByLines(int l_lineDelta, std::size_t l_lineCount) noexcept;
+    void scrollHorizontally(float pixelDelta) noexcept;
 
     void ensureLineVisible(std::size_t l_line, std::size_t l_lineCount) noexcept;
+    void ensureXVisible(float x, float caretWidth = 2.0f) noexcept;
 
     [[nodiscard]]
     std::size_t firstVisibleLine() const noexcept;
@@ -37,6 +42,12 @@ public:
 
     [[nodiscard]]
     float lineY(std::size_t l_line) const noexcept;
+
+    [[nodiscard]]
+    float horizontalOffset() const noexcept;
+
+    [[nodiscard]]
+    float width() const noexcept;
 
     [[nodiscard]]
     float scrollOffset() const noexcept;

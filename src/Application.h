@@ -1,6 +1,7 @@
 #pragma once
 #include "editor/Editor.h"
 #include "editor/Viewport.h"
+#include "editor/LineLayout.h"
 #include <string_view>
 #include <string>
 #include <vector>
@@ -21,8 +22,17 @@ struct RenderedText
 
 struct RenderedLine
 {
+    std::size_t documentLine{0};
     RenderedText number;
     RenderedText content;
+    LineLayout layout;
+};
+
+enum class MouseSelectionMode
+{
+    Character,
+    Word,
+    Line
 };
 
 class Application
@@ -35,19 +45,35 @@ class Application
 
     void handleTextInput(const char* l_input);
     void handleKeyDown(int l_key, unsigned int l_modifiers);
-    void handleMouseWheel(float l_amount, const bool l_flipped);
+    void handleMouseWheel(float verticalAmount, float horizontalAmount, int verticalTicks, int horizontalTicks,bool flipped, unsigned int modifiers);
     void handleWindowResize(int width, int height);
-    void handleMouseButtonDown(float x, float y, unsigned char button, unsigned int modifiers);
+    void handleMouseButtonDown(float x, float y, unsigned char button, unsigned char clicks, unsigned int modifiers);
     void handleMouseButtonUp(float x, float y, unsigned char button);
     void handleMouseMotion(float x, float y);
+
+    void updateMouseSelection();
+    void updateMouseAutoScroll();
 
     [[nodiscard]]
     std::size_t documentPositionFromMouse(float x, float y) const;
 
     [[nodiscard]]
-    std::size_t columnFromMouseX(std::string_view line, float x) const;
+    std::size_t documentLineFromMouseY(float y) const noexcept;
 
-    void updateMouseSelection();
+    [[nodiscard]]
+    std::size_t columnFromMouseX(std::size_t documentLine, float x) const;
+
+    [[nodiscard]]
+    float textOriginX() const noexcept;
+    
+    [[nodiscard]]
+    float documentXToScreenX(float documentX) const noexcept;
+
+    [[nodiscard]]
+    TextRange lineRangeFromMouse(float y) const;
+
+    [[nodiscard]]
+    const LineLayout* layoutForLine(std::size_t documentLine) const noexcept;
 
     void copySelectionToClipboard();
     void cutSelectionToClipboard();
@@ -64,7 +90,7 @@ class Application
     [[nodiscard]]
     float calculateCursorX() const;
 
-    void ensureCursorVisible();
+    //void ensureCursorVisible();
 
     void renderSelection();
 
@@ -84,6 +110,10 @@ class Application
     float m_mouseX{0.0f};
     float m_mouseY{0.0f};
 
+    float m_characterWidth{0.0F};
+
+    MouseSelectionMode m_mouseSelectionMode{MouseSelectionMode::Character};
+    TextRange m_mouseAnchorRange{};
     std::uint64_t m_lastAutoScrollTime{0};
 
     SDL_Window* m_window {nullptr};
@@ -92,6 +122,8 @@ class Application
     TTF_Font* m_font {nullptr};
     std::vector<RenderedLine> m_renderedLines;
     std::size_t m_renderedFirstLine{0};
+
+    std::size_t bytePositionFromMouseX(std::string_view line, float mouseX) const;
 
     Editor m_editor{
         "Rafedit\n"
@@ -105,8 +137,8 @@ class Application
         "Linea 9\n"
         "Linea 10\n"
         "Linea 11\n"
-        "Linea 12\n"
-        "Linea 13\n"
+        "\tLinea 12\n"
+        "\t\tLinea 13\n"
         "Linea 14\n"
         "Linea 15\n"
         "Linea 16\n"
